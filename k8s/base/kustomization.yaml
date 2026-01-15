@@ -1,0 +1,64 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Metadata
+namespace: bookstore
+namePrefix: bookstore-
+
+# Resources to deploy
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secret.yaml
+  - pvc.yaml
+  - mysql-init-configmap.yaml
+  - mysql-deployment.yaml
+  - redis-deployment.yaml
+  - backend-deployment.yaml
+  - frontend-deployment.yaml
+  - route.yaml
+
+# Common labels to add to all resources
+commonLabels:
+  app.kubernetes.io/name: bookstore
+  app.kubernetes.io/version: "1.0"
+  app.kubernetes.io/managed-by: kustomize
+
+# Common annotations
+commonAnnotations:
+  managed.by: kustomize
+  deployment.kubernetes.io/revision: "1"
+
+# Images to use
+images:
+  - name: ghcr.io/your-org/bookstore/backend
+    newName: ghcr.io/your-org/bookstore/backend
+    newTag: main
+  - name: ghcr.io/your-org/bookstore/frontend
+    newName: ghcr.io/your-org/bookstore/frontend
+    newTag: main
+
+# Replicas configuration
+replicas:
+  - name: backend
+    count: 2
+  - name: frontend
+    count: 2
+
+# Patch backend image pull policy
+patches:
+  - target:
+      kind: Deployment
+      name: backend
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: IfNotPresent
+
+  - target:
+      kind: Deployment
+      name: frontend
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: IfNotPresent
