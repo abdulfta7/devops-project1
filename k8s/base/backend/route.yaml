@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: backend-ingress
+  namespace: bookstore-backend
+  labels:
+    app: backend
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: bookstore-backend.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: backend
+            port:
+              number: 3000
+  tls:
+  - hosts:
+    - bookstore-backend.example.com
+    secretName: backend-tls
+

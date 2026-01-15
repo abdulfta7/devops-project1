@@ -1,0 +1,129 @@
+# Pod Security Standards
+# Enforces security best practices at the pod level
+---
+# Pod Security Policy for backend namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bookstore-backend
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bookstore-frontend
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bookstore-database
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+# RBAC - ServiceAccount for backend
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backend
+  namespace: bookstore-backend
+---
+# RBAC - Role for backend (read secrets, configmaps)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: backend-role
+  namespace: bookstore-backend
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list", "watch"]
+---
+# RBAC - RoleBinding for backend
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: backend-rolebinding
+  namespace: bookstore-backend
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: backend-role
+subjects:
+- kind: ServiceAccount
+  name: backend
+  namespace: bookstore-backend
+---
+# RBAC - ServiceAccount for frontend
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: frontend
+  namespace: bookstore-frontend
+---
+# RBAC - Role for frontend
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: frontend-role
+  namespace: bookstore-frontend
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch"]
+---
+# RBAC - RoleBinding for frontend
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: frontend-rolebinding
+  namespace: bookstore-frontend
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: frontend-role
+subjects:
+- kind: ServiceAccount
+  name: frontend
+  namespace: bookstore-frontend
+---
+# RBAC - ServiceAccount for database
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: database
+  namespace: bookstore-database
+---
+# RBAC - Role for database
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: database-role
+  namespace: bookstore-database
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list", "watch"]
+---
+# RBAC - RoleBinding for database
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: database-rolebinding
+  namespace: bookstore-database
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: database-role
+subjects:
+- kind: ServiceAccount
+  name: database
+  namespace: bookstore-database

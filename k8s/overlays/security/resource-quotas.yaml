@@ -1,0 +1,172 @@
+# Resource Quotas and Limits per Namespace
+---
+# Frontend namespace resource quota
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: bookstore-frontend-quota
+  namespace: bookstore-frontend
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: "2Gi"
+    limits.cpu: "4"
+    limits.memory: "4Gi"
+    pods: "10"
+    persistentvolumeclaims: "0"
+  scopeSelector:
+    matchExpressions:
+    - operator: In
+      scopeName: PriorityClass
+      values: ["default"]
+---
+# Frontend namespace limit range
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: bookstore-frontend-limits
+  namespace: bookstore-frontend
+spec:
+  limits:
+  - type: Pod
+    max:
+      cpu: "1"
+      memory: "512Mi"
+    min:
+      cpu: "50m"
+      memory: "64Mi"
+    default:
+      cpu: "200m"
+      memory: "128Mi"
+    defaultRequest:
+      cpu: "100m"
+      memory: "64Mi"
+  - type: Container
+    max:
+      cpu: "500m"
+      memory: "256Mi"
+    min:
+      cpu: "50m"
+      memory: "64Mi"
+    default:
+      cpu: "200m"
+      memory: "128Mi"
+    defaultRequest:
+      cpu: "100m"
+      memory: "64Mi"
+---
+# Backend namespace resource quota
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: bookstore-backend-quota
+  namespace: bookstore-backend
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: "2Gi"
+    limits.cpu: "4"
+    limits.memory: "4Gi"
+    pods: "10"
+    persistentvolumeclaims: "0"
+  scopeSelector:
+    matchExpressions:
+    - operator: In
+      scopeName: PriorityClass
+      values: ["default"]
+---
+# Backend namespace limit range
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: bookstore-backend-limits
+  namespace: bookstore-backend
+spec:
+  limits:
+  - type: Pod
+    max:
+      cpu: "1"
+      memory: "512Mi"
+    min:
+      cpu: "50m"
+      memory: "128Mi"
+    default:
+      cpu: "250m"
+      memory: "256Mi"
+    defaultRequest:
+      cpu: "100m"
+      memory: "128Mi"
+  - type: Container
+    max:
+      cpu: "500m"
+      memory: "256Mi"
+    min:
+      cpu: "50m"
+      memory: "128Mi"
+    default:
+      cpu: "250m"
+      memory: "256Mi"
+    defaultRequest:
+      cpu: "100m"
+      memory: "128Mi"
+---
+# Database namespace resource quota
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: bookstore-database-quota
+  namespace: bookstore-database
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: "2Gi"
+    limits.cpu: "4"
+    limits.memory: "4Gi"
+    pods: "5"
+    persistentvolumeclaims: "2"
+    requests.storage: "20Gi"
+  scopeSelector:
+    matchExpressions:
+    - operator: In
+      scopeName: PriorityClass
+      values: ["default"]
+---
+# Database namespace limit range
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: bookstore-database-limits
+  namespace: bookstore-database
+spec:
+  limits:
+  - type: Pod
+    max:
+      cpu: "1"
+      memory: "1Gi"
+    min:
+      cpu: "100m"
+      memory: "256Mi"
+    default:
+      cpu: "500m"
+      memory: "512Mi"
+    defaultRequest:
+      cpu: "250m"
+      memory: "256Mi"
+  - type: Container
+    max:
+      cpu: "500m"
+      memory: "512Mi"
+    min:
+      cpu: "100m"
+      memory: "256Mi"
+    default:
+      cpu: "250m"
+      memory: "256Mi"
+    defaultRequest:
+      cpu: "250m"
+      memory: "256Mi"
+  - type: PersistentVolumeClaim
+    max:
+      storage: "15Gi"
+    min:
+      storage: "1Gi"
