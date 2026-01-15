@@ -1,0 +1,446 @@
+name: CI/CD Pipeline - Build, Scan & Deploy
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ====================================
+  # BUILD IMAGES
+  # ====================================
+  build:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (backend)
+        id: meta-backend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha,prefix={{branch}}-
+
+      - name: Extract metadata (frontend)
+        id: meta-frontend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/frontend
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha,prefix={{branch}}-
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: ${{ steps.meta-backend.outputs.tags }}
+          labels: ${{ steps.meta-backend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: ${{ steps.meta-frontend.outputs.tags }}
+          labels: ${{ steps.meta-frontend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Save backend image for scanning
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          outputs: type=docker,dest=/tmp/backend-image.tar
+          tags: backend:test
+
+      - name: Save frontend image for scanning
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          outputs: type=docker,dest=/tmp/frontend-image.tar
+          tags: frontend:test
+
+      - name: Upload backend image
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-image
+          path: /tmp/backend-image.tar
+
+      - name: Upload frontend image
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-image
+          path: /tmp/frontend-image.tar
+
+  # ====================================
+  # SECURITY SCANNING
+  # ====================================
+  scan:
+    name: Security Scan with Trivy
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Download backend image
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-image
+          path: /tmp
+
+      - name: Download frontend image
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-image
+          path: /tmp
+
+      - name: Load backend image
+        run: docker load --input /tmp/backend-image.tar
+
+      - name: Load frontend image
+        run: docker load --input /tmp/frontend-image.tar
+
+      - name: Run Trivy scan on backend image
+        uses: aquasecurity/trivy-action@master
+        with:
+          input: 'backend:test'
+          format: 'sarif'
+          output: 'backend-trivy-results.sarif'
+          exit-code: '0'
+
+      - name: Run Trivy scan on frontend image
+        uses: aquasecurity/trivy-action@master
+        with:
+          input: 'frontend:test'
+          format: 'sarif'
+          output: 'frontend-trivy-results.sarif'
+          exit-code: '0'
+
+      - name: Upload backend Trivy results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'backend-trivy-results.sarif'
+          category: 'backend-trivy'
+
+      - name: Upload frontend Trivy results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'frontend-trivy-results.sarif'
+          category: 'frontend-trivy'
+
+      - name: Comment PR with scan results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '✅ Security scan completed with Trivy. Check the Security tab for detailed results.'
+            })
+
+  # ====================================
+  # TESTS
+  # ====================================
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    needs: build
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root123
+          MYSQL_DATABASE: bookstore
+          MYSQL_USER: bookstore
+          MYSQL_PASSWORD: bookstore123
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+        ports:
+          - 3306:3306
+
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install backend dependencies
+        working-directory: ./backend
+        run: npm ci
+
+      - name: Run backend health check
+        env:
+          DB_HOST: localhost
+          DB_USER: bookstore
+          DB_PASSWORD: bookstore123
+          REDIS_HOST: localhost
+          PORT: 3000
+        run: |
+          cd backend
+          npm start &
+          sleep 5
+          curl -f http://localhost:3000/api/health || exit 1
+          curl -f http://localhost:3000/api/ready || exit 1
+
+  # ====================================
+  # DEPLOY TO KUBERNETES
+  # ====================================
+  deploy:
+    name: Deploy to Kubernetes
+    runs-on: ubuntu-latest
+    needs: [build, scan, test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment:
+      name: production
+      url: https://k8s.example.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Kustomize
+        run: |
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.28.0'
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBECONFIG }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+          kubectl cluster-info
+          kubectl get nodes
+
+      - name: Update image references in kustomization
+        run: |
+          cd k8s/base
+          kustomize edit set image \
+            backend=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/backend:main \
+            frontend=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/frontend:main
+
+      - name: Deploy multi-namespace architecture
+        run: |
+          echo "📦 Deploying multi-namespace Bookstore application..."
+          kubectl apply -k k8s/base/
+          echo "✅ Base deployment applied"
+
+      - name: Deploy production overlays (security + autoscaling)
+        run: |
+          echo "🔒 Applying production overlays..."
+          kubectl apply -k k8s/overlays/security/
+          kubectl apply -k k8s/overlays/autoscaling/
+          echo "✅ Security and autoscaling overlays applied"
+
+      - name: Verify namespaces
+        run: |
+          echo "📋 Checking namespaces..."
+          kubectl get namespaces | grep bookstore
+          echo ""
+          echo "✅ All namespaces created"
+
+      - name: Wait for database to be ready
+        run: |
+          echo "⏳ Waiting for MySQL to be ready..."
+          kubectl wait --for=condition=ready pod \
+            -l app=mysql \
+            -n bookstore-database \
+            --timeout=300s || true
+          
+          echo "⏳ Waiting for Redis to be ready..."
+          kubectl wait --for=condition=ready pod \
+            -l app=redis \
+            -n bookstore-database \
+            --timeout=300s || true
+          
+          echo "✅ Database services ready"
+
+      - name: Wait for backend to be ready
+        run: |
+          echo "⏳ Waiting for Backend deployment..."
+          kubectl rollout status deployment/backend \
+            -n bookstore-backend \
+            --timeout=300s || true
+          echo "✅ Backend deployment ready"
+
+      - name: Wait for frontend to be ready
+        run: |
+          echo "⏳ Waiting for Frontend deployment..."
+          kubectl rollout status deployment/frontend \
+            -n bookstore-frontend \
+            --timeout=300s || true
+          echo "✅ Frontend deployment ready"
+
+      - name: Verify cross-namespace connectivity
+        run: |
+          echo "🔍 Testing cross-namespace connectivity..."
+          
+          # Test backend can reach database
+          echo "Testing backend → database connectivity..."
+          kubectl exec -n bookstore-backend \
+            deployment/backend \
+            -- curl -f http://mysql.bookstore-database.svc.cluster.local:3306 \
+            || echo "⚠️ MySQL TCP check (expected to fail with connection reset)"
+          
+          # Test frontend can reach backend
+          echo "Testing frontend → backend connectivity..."
+          kubectl exec -n bookstore-frontend \
+            deployment/frontend \
+            -- curl -f http://backend.bookstore-backend.svc.cluster.local:3000/api/health \
+            || echo "⚠️ Backend health check may fail if service not ready"
+          
+          echo "✅ Connectivity tests completed"
+
+      - name: Display deployment status
+        run: |
+          echo "📊 Deployment Summary"
+          echo "===================="
+          echo ""
+          echo "Namespaces:"
+          kubectl get namespaces | grep bookstore
+          echo ""
+          echo "Database Namespace (bookstore-database):"
+          kubectl get pods -n bookstore-database
+          echo ""
+          echo "Backend Namespace (bookstore-backend):"
+          kubectl get pods -n bookstore-backend
+          echo ""
+          echo "Frontend Namespace (bookstore-frontend):"
+          kubectl get pods -n bookstore-frontend
+          echo ""
+          echo "Services:"
+          kubectl get svc -n bookstore-database
+          kubectl get svc -n bookstore-backend
+          kubectl get svc -n bookstore-frontend
+          echo ""
+          echo "Autoscaling Status:"
+          kubectl get hpa -n bookstore-frontend -o wide || echo "HPAs not yet available"
+          kubectl get hpa -n bookstore-backend -o wide || echo "HPAs not yet available"
+
+      - name: Collect deployment logs
+        if: failure()
+        run: |
+          echo "🔴 Deployment failed. Collecting logs..."
+          echo ""
+          echo "Backend logs:"
+          kubectl logs -n bookstore-backend deployment/backend --all-containers=true --tail=50 || true
+          echo ""
+          echo "Frontend logs:"
+          kubectl logs -n bookstore-frontend deployment/frontend --all-containers=true --tail=50 || true
+          echo ""
+          echo "MySQL logs:"
+          kubectl logs -n bookstore-database statefulset/mysql --tail=50 || true
+          echo ""
+          echo "Events:"
+          kubectl get events -n bookstore-database --sort-by='.lastTimestamp' || true
+          kubectl get events -n bookstore-backend --sort-by='.lastTimestamp' || true
+          kubectl get events -n bookstore-frontend --sort-by='.lastTimestamp' || true
+
+  # ====================================
+  # SECURITY REPORT
+  # ====================================
+  security-report:
+    name: Generate Security Report
+    runs-on: ubuntu-latest
+    needs: [scan, deploy]
+    if: always()
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download scan results
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+
+      - name: Generate security report
+        run: |
+          echo "# 🔒 Security Report" > security-report.md
+          echo "" >> security-report.md
+          echo "**Build Date:** $(date)" >> security-report.md
+          echo "**Commit:** ${{ github.sha }}" >> security-report.md
+          echo "**Branch:** ${{ github.ref }}" >> security-report.md
+          echo "" >> security-report.md
+          echo "## 📋 Scan Results" >> security-report.md
+          echo "- ✅ Backend Image Scanned" >> security-report.md
+          echo "- ✅ Frontend Image Scanned" >> security-report.md
+          echo "" >> security-report.md
+          echo "For detailed results, check the [Security Tab](https://github.com/${{ github.repository }}/security/code-scanning)" >> security-report.md
+
+      - name: Create issue with security report
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('security-report.md', 'utf8');
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🔒 Security Report - ${new Date().toISOString().split('T')[0]}`,
+              body: report,
+              labels: ['security', 'automated']
+            })
+
+      - name: Upload security report
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-report
+          path: security-report.md

@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bookstore-database
+  labels:
+    app: bookstore
+    component: database
+    environment: production

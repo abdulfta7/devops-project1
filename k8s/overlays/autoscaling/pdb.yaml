@@ -1,0 +1,49 @@
+# Pod Disruption Budgets - Ensure minimum availability during disruptions
+---
+# Frontend PDB - At least 1 pod must be available
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend-pdb
+  namespace: bookstore-frontend
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: frontend
+---
+# Backend PDB - At least 1 pod must be available
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: backend-pdb
+  namespace: bookstore-backend
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: backend
+---
+# MySQL PDB - Ensure statefulset stability
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: mysql-pdb
+  namespace: bookstore-database
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: mysql
+---
+# Redis PDB - Ensure cache availability
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: redis-pdb
+  namespace: bookstore-database
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: redis
