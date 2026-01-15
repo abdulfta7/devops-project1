@@ -158,7 +158,7 @@ app.get('/api/books', async (req, res) => {
         // Try cache first (BONUS: Redis Caching)
         const cached = await getFromCache('books:all');
         if (cached) {
-            return res.json({ ...cached, fromCache: true });
+            return res.json(cached);
         }
 
         const [rows] = await pool.query('SELECT * FROM books ORDER BY created_at DESC');
