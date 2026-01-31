@@ -2,9 +2,9 @@ name: CI/CD Pipeline - Build, Scan & Deploy
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ master ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ master ]
 
 env:
   REGISTRY: ghcr.io
@@ -43,7 +43,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
-            type=sha,prefix={{branch}}-
+            type=sha
 
       - name: Extract metadata (frontend)
         id: meta-frontend
@@ -53,13 +53,13 @@ jobs:
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
-            type=sha,prefix={{branch}}-
+            type=sha
 
       - name: Build and push backend image
         uses: docker/build-push-action@v5
         with:
           context: ./backend
-          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
           tags: ${{ steps.meta-backend.outputs.tags }}
           labels: ${{ steps.meta-backend.outputs.labels }}
           cache-from: type=gha
@@ -69,7 +69,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: ./frontend
-          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
           tags: ${{ steps.meta-frontend.outputs.tags }}
           labels: ${{ steps.meta-frontend.outputs.labels }}
           cache-from: type=gha
@@ -239,7 +239,7 @@ jobs:
     name: Deploy to Kubernetes
     runs-on: ubuntu-latest
     needs: [build, scan, test]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     environment:
       name: production
       url: https://k8s.example.com
@@ -425,7 +425,7 @@ jobs:
           echo "For detailed results, check the [Security Tab](https://github.com/${{ github.repository }}/security/code-scanning)" >> security-report.md
 
       - name: Create issue with security report
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         uses: actions/github-script@v7
         with:
           script: |
